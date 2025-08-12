@@ -1,0 +1,548 @@
+@using Shared.Entities
+@using Microsoft.JSInterop
+@inject IMediaService mediaService
+@inject IApiHostService apiHostService
+@inject IJSRuntime JSRuntime
+
+<div class="media-gallery" @ref="galleryContainer">
+    @if (isLoading)
+    {
+        <div class="media-gallery__loading">
+            <div class="macos-loading-spinner"></div>
+            Loading media files...
+        </div>
+    }
+    else if (mediaFiles.Any())
+    {
+        <div class="media-gallery__grid">
+            @foreach (var media in mediaFiles)
+            {
+                <div class="media-item @(selectedMediaIds.Contains(media.Id) ? "media-item--selected" : "")" 
+                     data-media-id="@media.Id" 
+                     title="@media.OriginalFileName">
+                    <div class="media-item__preview">
+                        @if (IsImage(media.ContentType))
+                        {
+                            <img src="@mediaService.GetMediaUrl(media)" alt="@media.OriginalFileName" class="media-item__image" draggable="false" />
+                        }
+                        else if (IsVideo(media.ContentType))
+                        {
+                            <div class="media-item__file-icon">
+                                ??
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="media-item__file-icon">
+                                @GetFileIcon(media.ContentType)
+                            </div>
+                        }
+                    </div>
+                    
+                    <div class="media-item__info">
+                        <h4 class="media-item__name">@media.OriginalFileName</h4>
+                        <div class="media-item__meta">
+                            <span class="media-item__size">@FormatFileSize(media.FileSize)</span>
+                            <span class="media-item__date">@media.CreatedAt.ToString("MMM dd")</span>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+        
+        <!-- Context Menu -->
+        <div class="media-context-menu" @ref="contextMenuElement" style="display: none;" @onclick:stopPropagation="true">
+            <div class="media-context-option" @onclick="() => ViewContextMedia()">
+                Open
+            </div>
+            <div class="media-context-option" @onclick="() => CopyContextMediaLink()">
+                Copy Link
+            </div>
+            <div class="media-context-option" @onclick="() => ShowContextMediaInfo()">
+                Get Info
+            </div>
+            <hr class="media-context-separator" />
+            <div class="media-context-option media-context-option--danger" @onclick="() => DeleteContextMedia()">
+                Delete
+            </div>
+        </div>
+    }
+    else
+    {
+        <DropzoneComponent @ref="dropzoneRef" 
+                          OnFilesSelected="OnDropzoneFileSelected" 
+                          AcceptedTypes="@GetAcceptTypes()"
+                          CssClass="media-gallery__empty">
+            <div class="dropzone-empty-state" @onclick="TriggerFileSelect">
+                <img src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgdmlld0JveD0iMCAwIDI0IDI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzk5OSI+PHBhdGggZD0iTTQgMjJoMTRhMiAyIDAgMDAyLTJWN2wtNS01SDZhMiAyIDAgMDAtMiAydjE2YTIgMiAwIDAwMiAyeiIgc3Ryb2tlLXdpZHRoPSIxLjUiLz48cGF0aCBkPSJNMTQgMnY0YTIgMiAwIDAwMiAyaDQiIHN0cm9rZS13aWR0aD0iMS41Ii8+PC9zdmc+" class="dropzone-empty-icon" />
+                <h4 class="dropzone-empty-title">No media files uploaded yet</h4>
+                <p class="dropzone-empty-subtitle">Drag and drop files here or click to browse</p>
+                <div class="dropzone-empty-action">
+                    Choose Files
+                </div>
+            </div>
+        </DropzoneComponent>
+    }
+    
+    @if (showEditDialog && editingMedia != null)
+    {
+        <div class="modal-backdrop" @onclick="CloseEditDialog">
+            <div class="modal macos-info-window" @onclick:stopPropagation="true">
+                <div class="macos-info-header">
+                    <h3>@editingMedia.OriginalFileName</h3>
+                    <button @onclick="CloseEditDialog" class="macos-info-close">×</button>
+                </div>
+                <div class="macos-info-content">
+                    <div class="macos-info-preview">
+                        @if (IsImage(editingMedia.ContentType))
+                        {
+                            <img src="@mediaService.GetMediaUrl(editingMedia)" alt="@editingMedia.OriginalFileName" />
+                        }
+                        else
+                        {
+                            <div class="macos-info-icon">
+                                <span>@GetFileIcon(editingMedia.ContentType)</span>
+                            </div>
+                        }
+                    </div>
+                    <div class="macos-info-details">
+                        <div class="macos-info-row">
+                            <div class="macos-info-label">Name:</div>
+                            <div class="macos-info-value">@editingMedia.OriginalFileName</div>
+                        </div>
+                        <div class="macos-info-row">
+                            <div class="macos-info-label">Kind:</div>
+                            <div class="macos-info-value">@GetFileKind(editingMedia.ContentType)</div>
+                        </div>
+                        <div class="macos-info-row">
+                            <div class="macos-info-label">Size:</div>
+                            <div class="macos-info-value">@FormatFileSize(editingMedia.FileSize)</div>
+                        </div>
+                        <div class="macos-info-row">
+                            <div class="macos-info-label">Created:</div>
+                            <div class="macos-info-value">@editingMedia.CreatedAt.ToString("MMM dd, yyyy h:mm tt")</div>
+                        </div>
+                        <div class="macos-info-row">
+                            <div class="macos-info-label">Origin:</div>
+                            <div class="macos-info-value">
+                                <select @bind="editApiHostName" class="macos-info-select">
+                                    @foreach (var host in apiHosts)
+                                    {
+                                        <option value="@host.Name">@host.Name</option>
+                                    }
+                                </select>
+                            </div>
+                        </div>
+                        <div class="macos-info-row">
+                            <div class="macos-info-label">Description:</div>
+                            <div class="macos-info-value">
+                                <input type="text" @bind="editDescription" placeholder="Optional description..." maxlength="500" class="macos-info-input" />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="macos-info-footer">
+                    <button @onclick="CloseEditDialog" class="macos-button macos-button-secondary">Cancel</button>
+                    <button @onclick="SaveEdit" class="macos-button macos-button-primary" disabled="@isSaving">
+                        @(isSaving ? "Saving..." : "Apply Changes")
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public EventCallback OnMediaChanged { get; set; }
+    [Parameter] public EventCallback<InputFileChangeEventArgs> OnFileUpload { get; set; }
+
+    private List<Media> mediaFiles = new();
+    private HashSet<string> selectedMediaIds = new();
+    private bool isLoading = true;
+    private bool showEditDialog = false;
+    private bool isSaving = false;
+    private Media? editingMedia;
+    private Media? contextMedia;
+    private string editDescription = "";
+    private string editApiHostName = "";
+    private List<ApiHostDto> apiHosts = new();
+    private DropzoneComponent? dropzoneRef;
+    private ElementReference galleryContainer;
+    private ElementReference contextMenuElement;
+    private DotNetObjectReference<MediaGallery>? dotNetRef;
+    private IJSObjectReference? mouseHandlerCleanup;
+    private IJSObjectReference? keyboardHandlerCleanup;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadMedia();
+        LoadApiHosts();
+        dotNetRef = DotNetObjectReference.Create(this);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && mediaFiles.Any())
+        {
+            try
+            {
+                // Initialize enhanced mouse handling
+                mouseHandlerCleanup = await JSRuntime.InvokeAsync<IJSObjectReference>(
+                    "initMediaItemHandling", galleryContainer, dotNetRef);
+                
+                // Initialize keyboard navigation
+                keyboardHandlerCleanup = await JSRuntime.InvokeAsync<IJSObjectReference>(
+                    "initKeyboardNavigation", galleryContainer, dotNetRef);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to initialize media handling: {ex.Message}");
+            }
+        }
+    }
+
+    private async Task LoadMedia()
+    {
+        try
+        {
+            isLoading = true;
+            var media = await mediaService.GetAll();
+            mediaFiles = media.ToList();
+            
+            // Clear selections when media list changes
+            selectedMediaIds.Clear();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to load media: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void LoadApiHosts()
+    {
+        try
+        {
+            apiHosts = apiHostService.GetApiHosts();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to load API hosts: {ex.Message}");
+        }
+    }
+
+    public async Task RefreshMedia()
+    {
+        await LoadMedia();
+        
+        // Re-initialize handlers after refresh
+        if (mediaFiles.Any() && dotNetRef != null)
+        {
+            try
+            {
+                mouseHandlerCleanup = await JSRuntime.InvokeAsync<IJSObjectReference>(
+                    "initMediaItemHandling", galleryContainer, dotNetRef);
+                keyboardHandlerCleanup = await JSRuntime.InvokeAsync<IJSObjectReference>(
+                    "initKeyboardNavigation", galleryContainer, dotNetRef);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to re-initialize handlers: {ex.Message}");
+            }
+        }
+    }
+
+    // JavaScript interop methods for enhanced mouse handling
+    [JSInvokable]
+    public async Task HandleMediaSelection(string[] mediaIds)
+    {
+        selectedMediaIds.Clear();
+        foreach (var id in mediaIds)
+        {
+            selectedMediaIds.Add(id);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public async Task HandleMediaDoubleClick(string mediaId)
+    {
+        var media = mediaFiles.FirstOrDefault(m => m.Id == mediaId);
+        if (media != null)
+        {
+            await ViewMedia(media);
+        }
+    }
+
+    [JSInvokable]
+    public async Task HandleMediaContextMenu(string mediaId, int x, int y)
+    {
+        contextMedia = mediaFiles.FirstOrDefault(m => m.Id == mediaId);
+        if (contextMedia != null)
+        {
+            await JSRuntime.InvokeVoidAsync("showContextMenu", contextMenuElement, x, y);
+        }
+    }
+
+    [JSInvokable]
+    public async Task HandleMediaDelete(string mediaId)
+    {
+        var media = mediaFiles.FirstOrDefault(m => m.Id == mediaId);
+        if (media != null)
+        {
+            await DeleteMedia(media);
+        }
+    }
+
+    // Context menu actions
+    private async Task ViewContextMedia()
+    {
+        if (contextMedia != null)
+        {
+            await ViewMedia(contextMedia);
+            await JSRuntime.InvokeVoidAsync("hideContextMenu", contextMenuElement);
+        }
+    }
+
+    private async Task CopyContextMediaLink()
+    {
+        if (contextMedia != null)
+        {
+            await CopyLink(contextMedia);
+            await JSRuntime.InvokeVoidAsync("hideContextMenu", contextMenuElement);
+        }
+    }
+
+    private async Task ShowContextMediaInfo()
+    {
+        if (contextMedia != null)
+        {
+            ShowEditDialog(contextMedia);
+            await JSRuntime.InvokeVoidAsync("hideContextMenu", contextMenuElement);
+        }
+    }
+
+    private async Task DeleteContextMedia()
+    {
+        if (contextMedia != null)
+        {
+            await DeleteMedia(contextMedia);
+            await JSRuntime.InvokeVoidAsync("hideContextMenu", contextMenuElement);
+        }
+    }
+
+    private async Task OnDropzoneFileSelected(InputFileChangeEventArgs e)
+    {
+        if (OnFileUpload.HasDelegate)
+        {
+            await OnFileUpload.InvokeAsync(e);
+        }
+    }
+
+    private async Task TriggerFileSelect()
+    {
+        if (dropzoneRef != null)
+        {
+            await dropzoneRef.TriggerFileSelect();
+        }
+    }
+    
+    private async Task ViewMedia(Media media)
+    {
+        // Open in new tab
+        await JSRuntime.InvokeVoidAsync("window.open", mediaService.GetMediaUrl(media), "_blank");
+    }
+
+    private bool IsImage(string contentType)
+    {
+        return contentType.StartsWith("image/");
+    }
+
+    private bool IsVideo(string contentType)
+    {
+        return contentType.StartsWith("video/");
+    }
+
+    private string GetFileIcon(string contentType)
+    {
+        if (contentType.StartsWith("image/")) return "???";
+        if (contentType.StartsWith("video/")) return "??";
+        if (contentType.StartsWith("audio/")) return "??";
+        if (contentType.StartsWith("text/")) return "??";
+        if (contentType.Contains("pdf")) return "??";
+        if (contentType.Contains("word") || contentType.Contains("document")) return "??";
+        if (contentType.Contains("excel") || contentType.Contains("sheet")) return "??";
+        if (contentType.Contains("powerpoint") || contentType.Contains("presentation")) return "??";
+        if (contentType.Contains("zip") || contentType.Contains("compressed")) return "??";
+        return "??";
+    }
+
+    private string GetFileKind(string contentType)
+    {
+        if (contentType.StartsWith("image/"))
+        {
+            var format = contentType.Split('/')[1].ToUpper();
+            return $"{format} Image";
+        }
+        else if (contentType.StartsWith("video/"))
+        {
+            var format = contentType.Split('/')[1].ToUpper();
+            return $"{format} Movie";
+        }
+        else if (contentType.StartsWith("text/"))
+        {
+            return "Text Document";
+        }
+        else if (contentType.StartsWith("application/pdf"))
+        {
+            return "PDF Document";
+        }
+        else if (contentType.Contains("word") || contentType.Contains("document"))
+        {
+            return "Word Document";
+        }
+        else if (contentType.Contains("excel") || contentType.Contains("sheet"))
+        {
+            return "Excel Spreadsheet";
+        }
+        else if (contentType.Contains("zip") || contentType.Contains("compressed"))
+        {
+            return "Compressed Archive";
+        }
+        
+        return "Document";
+    }
+
+    private string FormatFileSize(long bytes)
+    {
+        const int scale = 1024;
+        string[] orders = { "GB", "MB", "KB", "Bytes" };
+        long max = (long)Math.Pow(scale, orders.Length - 1);
+
+        foreach (string order in orders)
+        {
+            if (bytes > max)
+                return string.Format("{0:##.##} {1}", decimal.Divide(bytes, max), order);
+
+            max /= scale;
+        }
+        return "0 Bytes";
+    }
+
+    private string GetAcceptTypes()
+    {
+        return ".jpg,.jpeg,.png,.gif,.bmp,.webp,.mp4,.avi,.mov,.wmv,.flv,.webm,.txt,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar,.7z,.tar,.gz";
+    }
+
+    private async Task CopyLink(Media media)
+    {
+        var url = mediaService.GetMediaUrl(media);
+        await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", url);
+        
+        // Show a more Mac-like notification
+        await JSRuntime.InvokeVoidAsync("eval", @"
+            const notification = document.createElement('div');
+            notification.className = 'macos-notification';
+            notification.textContent = 'Link copied to clipboard';
+            document.body.appendChild(notification);
+            setTimeout(() => notification.remove(), 2000);
+        ");
+    }
+
+    private void ShowEditDialog(Media media)
+    {
+        editingMedia = media;
+        editDescription = media.Description ?? "";
+        editApiHostName = media.ApiHostName;
+        showEditDialog = true;
+        selectedMediaIds.Clear(); // Clear selection when opening dialog
+        StateHasChanged();
+    }
+
+    private void CloseEditDialog()
+    {
+        showEditDialog = false;
+        editingMedia = null;
+        editDescription = "";
+        editApiHostName = "";
+        StateHasChanged();
+    }
+
+    private async Task SaveEdit()
+    {
+        if (editingMedia == null) return;
+
+        try
+        {
+            isSaving = true;
+            await mediaService.Edit(editingMedia.Id, editDescription, editApiHostName);
+            CloseEditDialog();
+            await LoadMedia();
+            
+            if (OnMediaChanged.HasDelegate)
+            {
+                await OnMediaChanged.InvokeAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to edit media: {ex.Message}");
+        }
+        finally
+        {
+            isSaving = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DeleteMedia(Media media)
+    {
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", $"Are you sure you want to delete '{media.OriginalFileName}'?"))
+            return;
+
+        try
+        {
+            await mediaService.Delete(media.Id);
+            selectedMediaIds.Clear(); // Clear selection after delete
+            await LoadMedia();
+            
+            if (OnMediaChanged.HasDelegate)
+            {
+                await OnMediaChanged.InvokeAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to delete media: {ex.Message}");
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        // Cleanup event handlers
+        try
+        {
+            if (mouseHandlerCleanup != null)
+            {
+                await mouseHandlerCleanup.InvokeVoidAsync("dispose");
+                await mouseHandlerCleanup.DisposeAsync();
+            }
+            
+            if (keyboardHandlerCleanup != null)
+            {
+                await keyboardHandlerCleanup.InvokeVoidAsync("dispose");
+                await keyboardHandlerCleanup.DisposeAsync();
+            }
+        }
+        catch (Exception)
+        {
+            // Ignore cleanup errors during disposal
+        }
+
+        dotNetRef?.Dispose();
+    }
+}

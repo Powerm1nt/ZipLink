@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.OpenApi.Models;
 using Server.Contexts;
 using Server.Services;
 using System.Reflection;
@@ -16,6 +18,17 @@ builder.Services.AddSwaggerGen(c =>
     var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
     c.IncludeXmlComments(xmlPath);
     c.EnableAnnotations();
+    
+    // Configure file upload support for Swagger
+    c.MapType<IFormFile>(() => new OpenApiSchema
+    {
+        Type = "string",
+        Format = "binary"
+    });
+
+    // Support for multipart/form-data
+    c.SupportNonNullableReferenceTypes();
+    
     c.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
     {
         Name = "Authorization",
@@ -107,9 +120,21 @@ builder.Services.AddCors(options =>
         });
 });
 
+// Configure file upload limits
+builder.Services.Configure<IISServerOptions>(options =>
+{
+    options.MaxRequestBodySize = builder.Configuration.GetValue<long>("MediaUpload:MaxFileSizeBytes");
+});
+
+builder.Services.Configure<KestrelServerOptions>(options =>
+{
+    options.Limits.MaxRequestBodySize = builder.Configuration.GetValue<long>("MediaUpload:MaxFileSizeBytes");
+});
+
 // Services registration
 builder.Services.AddScoped<UserService>();
 builder.Services.AddScoped<LinkService>();
+builder.Services.AddScoped<MediaService>();
 builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<ClaimsPrincipal>();
 builder.Services.AddScoped<UserAccessValidator>();

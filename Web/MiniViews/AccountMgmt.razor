@@ -1,6 +1,7 @@
 ﻿@inject AccountState accountState
 @inject IAuthValidator authValidator
 @inject IAccountService accountService
+@inject NavigationManager navigationManager
 
 <div class="miniview accountmgmt">
 	<div class="miniview__body">
@@ -19,6 +20,7 @@
 			<p class="miniview__link" @onclick="() => HandleChangeView(AccountView.ACCOUNT_RESET_PASSWORD)">Change your password</p>
 			<p class="miniview__link" @onclick="() => HandleChangeView(AccountView.ACCOUNT_CREATION_FORM)">Login/Create a new account</p>
 			<p class="miniview__link" @onclick="() => HandleChangeView(AccountView.ACCOUNT_EDIT_LINKS)">Edit links</p>
+			<p class="miniview__link" @onclick="HandleNavigateToMedia">Manage media files</p>
 
 			<div class="miniview__actions">
 				<button class="button__danger" @onclick="HandleLogout">Logout</button>
@@ -67,5 +69,10 @@
 	protected async Task HandleLogout()
 	{
 		await accountService.Logout();
+	}
+
+	protected void HandleNavigateToMedia()
+	{
+		navigationManager.NavigateTo("/media");
 	}
 }

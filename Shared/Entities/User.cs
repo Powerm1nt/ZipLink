@@ -13,5 +13,7 @@ namespace Shared.Entities
         public string HashedPassword { get; set; }
 
         public ICollection<Link> Links { get; set; }
+        
+        public ICollection<Media> MediaFiles { get; set; }
     }
 }

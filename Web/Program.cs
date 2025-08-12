@@ -28,6 +28,7 @@ builder.Services.AddScoped(_ => new HttpClient { BaseAddress = new Uri(defaultAp
 builder.Services.AddScoped<IAuthValidator, AuthValidator>();
 builder.Services.AddScoped<IAccountService, AccountService>();
 builder.Services.AddScoped<ILinkService, LinkService>();
+builder.Services.AddScoped<IMediaService, MediaService>();
 builder.Services.AddScoped<IApiHostService, ApiHostService>();
 
 builder.Services.AddSingleton(config);

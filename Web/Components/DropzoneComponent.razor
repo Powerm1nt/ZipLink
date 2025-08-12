@@ -1,0 +1,117 @@
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.JSInterop
+@implements IAsyncDisposable
+@inject IJSRuntime JSRuntime
+
+<div @ref="dropzoneElement" class="dropzone @(IsActive ? "dropzone-active" : "") @CssClass">
+    <InputFile @ref="fileInputRef" OnChange="OnFileSelected" accept="@AcceptedTypes" style="display: none;" />
+    
+    <div class="dropzone-content">
+        @if (IsActive)
+        {
+            <div class="dropzone-overlay">
+                <div class="dropzone-message">
+                    <svg class="dropzone-icon" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" />
+                    </svg>
+                    <p>Drop files here to upload</p>
+                </div>
+            </div>
+        }
+        @ChildContent
+    </div>
+</div>
+
+@code {
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public EventCallback<InputFileChangeEventArgs> OnFilesSelected { get; set; }
+    [Parameter] public string AcceptedTypes { get; set; } = "*/*";
+    [Parameter] public string CssClass { get; set; } = "";
+    [Parameter] public bool Disabled { get; set; } = false;
+
+    private ElementReference dropzoneElement;
+    private InputFile? fileInputRef;
+    private DotNetObjectReference<DropzoneComponent>? dotNetRef;
+    private IJSObjectReference? jsModule;
+    private bool IsActive { get; set; } = false;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !Disabled)
+        {
+            dotNetRef = DotNetObjectReference.Create(this);
+            
+            try
+            {
+                var cleanup = await JSRuntime.InvokeAsync<IJSObjectReference>(
+                    "initializeDropzone", dropzoneElement, dotNetRef);
+                
+                // Store cleanup function
+                await JSRuntime.InvokeVoidAsync(
+                    "eval", $"document.querySelector('[data-dropzone-id=\"{dropzoneElement.Id}\"]')._dropzoneCleanup = arguments[0]", cleanup);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to initialize dropzone: {ex.Message}");
+            }
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnDragEnter()
+    {
+        if (!Disabled)
+        {
+            IsActive = true;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnDragLeave()
+    {
+        IsActive = false;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public async Task OnFileDropped(string fileName, long fileSize, string contentType)
+    {
+        Console.WriteLine($"File dropped: {fileName} ({fileSize} bytes, {contentType})");
+        IsActive = false;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnFileSelected(InputFileChangeEventArgs e)
+    {
+        if (OnFilesSelected.HasDelegate)
+        {
+            await OnFilesSelected.InvokeAsync(e);
+        }
+    }
+
+    public async Task TriggerFileSelect()
+    {
+        if (fileInputRef != null)
+        {
+            await JSRuntime.InvokeVoidAsync("eval", $"document.querySelector('input[type=\"file\"]').click()");
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (dropzoneElement.Id != null)
+            {
+                await JSRuntime.InvokeVoidAsync("cleanupDropzone", dropzoneElement);
+            }
+        }
+        catch (Exception)
+        {
+            // Ignore cleanup errors during disposal
+        }
+
+        dotNetRef?.Dispose();
+    }
+}

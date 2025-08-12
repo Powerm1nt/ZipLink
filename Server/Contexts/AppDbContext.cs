@@ -8,6 +8,7 @@ namespace Server.Contexts
     {
         public required DbSet<Link> Links { get; set; }
         public required DbSet<User> Users { get; set; }
+        public required DbSet<Media> MediaFiles { get; set; }
         
         public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) 
         { 
@@ -20,6 +21,11 @@ namespace Server.Contexts
             // Defining my relations
             modelBuilder.Entity<User>()
                 .HasMany(m => m.Links)
+                .WithOne(o => o.User)
+                .HasPrincipalKey(p => p.Id);
+
+            modelBuilder.Entity<User>()
+                .HasMany(m => m.MediaFiles)
                 .WithOne(o => o.User)
                 .HasPrincipalKey(p => p.Id);
 

@@ -1,0 +1,390 @@
+﻿@page "/media"
+@using Shared.Entities
+@implements IDisposable
+@inject IMediaService mediaService
+@inject IApiHostService apiHostService
+@inject NavigationManager navigationManager
+@inject AccountState accountState
+@inject IJSRuntime JS
+
+<PageTitle>ZipLink - Media Management</PageTitle>
+
+<!-- MacOS background -->
+<div class="macos-ocean-background"></div>
+
+<div class="page">
+    <div class="macos-window" @ref="windowElement">
+        <!-- macOS Title Bar -->
+        <div class="macos-titlebar" @ref="titlebarElement">
+            <div class="macos-window-controls">
+                <div class="macos-control macos-close" @onclick="NavigateToHome" title="Close"></div>
+                <div class="macos-control macos-minimize" @onclick="MinimizeWindow" title="Minimize"></div>
+                <div class="macos-control macos-maximize" @onclick="MaximizeWindow" title="Maximize"></div>
+            </div>
+            <div class="macos-title">ZipLink Media</div>
+        </div>
+        
+        <!-- macOS Toolbar -->
+        <div class="macos-toolbar">
+            <div class="macos-toolbar-section">
+                <button class="macos-toolbar-button" @onclick="() => mediaGallery?.RefreshMedia()">
+                    <span class="macos-toolbar-icon">↻</span>
+                    Refresh
+                </button>
+            </div>
+        </div>
+        
+        <!-- macOS Content Area -->
+        <div class="macos-content">
+            <!-- Sidebar -->
+            <div class="macos-sidebar">
+                <!-- DEVICES -->
+                <div class="macos-sidebar-section">
+                    <div class="macos-sidebar-header">DEVICES</div>
+                    <div class="macos-sidebar-item">
+                        <span class="macos-sidebar-icon">💻</span>
+                        <span>MacBook HD</span>
+                    </div>
+                </div>
+                
+                <!-- PLACES -->
+                <div class="macos-sidebar-section">
+                    <div class="macos-sidebar-header">PLACES</div>
+                    <div class="macos-sidebar-item">
+                        <span class="macos-sidebar-icon">🏠</span>
+                        <span>Desktop</span>
+                    </div>
+                    <div class="macos-sidebar-item macos-sidebar-item-selected">
+                        <span class="macos-sidebar-icon">📁</span>
+                        <span>Media</span>
+                    </div>
+                    <div class="macos-sidebar-item">
+                        <span class="macos-sidebar-icon">📄</span>
+                        <span>Documents</span>
+                    </div>
+                </div>
+                
+                <!-- File Types -->
+                <div class="macos-sidebar-section">
+                    <div class="macos-sidebar-header">MEDIA TYPES</div>
+                    <div class="macos-sidebar-item">
+                        <span class="macos-sidebar-icon">🖼️</span>
+                        <span>Images</span>
+                    </div>
+                    <div class="macos-sidebar-item">
+                        <span class="macos-sidebar-icon">🎬</span>
+                        <span>Videos</span>
+                    </div>
+                    <div class="macos-sidebar-item">
+                        <span class="macos-sidebar-icon">📄</span>
+                        <span>Documents</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Main Content Area -->
+            <div class="macos-main">
+                @if (!string.IsNullOrEmpty(errorMessage))
+                {
+                    <div class="macos-error-message">
+                        <span class="macos-error-icon">⚠️</span>
+                        <span>@errorMessage</span>
+                    </div>
+                }
+                
+                @if (isUploading && uploadProgress > 0 && uploadProgress < 100)
+                {
+                    <div class="macos-progress">
+                        <div class="macos-progress-bar">
+                            <div class="macos-progress-fill" style="width: @(uploadProgress)%"></div>
+                        </div>
+                        <div class="macos-progress-text">@(uploadProgress)%</div>
+                    </div>
+                }
+                
+                <MediaGallery @ref="mediaGallery" OnMediaChanged="OnMediaChanged" OnFileUpload="OnDropzoneFileUpload" />
+            </div>
+        </div>
+        
+        <!-- Status Bar -->
+        <div class="macos-statusbar">
+            <span>
+                @if (mediaFiles != null && mediaFiles.Any())
+                {
+                    @($"{mediaFiles.Count} item{(mediaFiles.Count != 1 ? "s" : "")}")
+                }
+                else
+                {
+                    @("0 items")
+                }
+            </span>
+        </div>
+    </div>
+</div>
+
+@code {
+    private MediaGallery? mediaGallery;
+    private IBrowserFile? tempSelectedFile;
+    private bool isUploading = false;
+    private int uploadProgress = 0;
+    private string errorMessage = "";
+    private List<Media>? mediaFiles;
+    private List<ApiHostDto> apiHosts = new();
+    private string selectedApiHostName = "";
+    private string fileDescription = "";
+    private ElementReference windowElement;
+    private ElementReference titlebarElement;
+    private IJSObjectReference? windowController;
+
+    protected override async Task OnInitializedAsync()
+    {
+        accountState.OnChange += StateHasChanged;
+        
+        try
+        {
+            apiHosts = apiHostService.GetApiHosts();
+            if (apiHosts.Any())
+            {
+                selectedApiHostName = apiHosts.First().Name;
+            }
+            
+            await LoadMedia();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to initialize: {ex.Message}";
+        }
+    }
+    
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                // Initialize the enhanced movable window functionality
+                windowController = await JS.InvokeAsync<IJSObjectReference>("initMovableWindow", windowElement, titlebarElement);
+                
+                // Initialize the macOS dock
+                await JS.InvokeVoidAsync("initMacOSDock");
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Error initializing UI components: {ex.Message}");
+            }
+        }
+    }
+    
+    private async Task LoadMedia()
+    {
+        try
+        {
+            mediaFiles = (await mediaService.GetAll()).ToList();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load media: {ex.Message}";
+        }
+    }
+
+    // Window control methods
+    private async Task CenterWindow()
+    {
+        if (windowController != null)
+        {
+            try
+            {
+                await windowController.InvokeVoidAsync("centerWindow");
+                await JS.InvokeVoidAsync("eval", "if(window.macOSDock) window.macOSDock.bounceIcon('.macos-dock-icon--launchpad')");
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Error centering window: {ex.Message}");
+            }
+        }
+    }
+
+    private async Task SnapWindow(string edge)
+    {
+        if (windowController != null)
+        {
+            try
+            {
+                await windowController.InvokeVoidAsync("snapToEdge", edge);
+                
+                // Bounce corresponding dock icon
+                string iconSelector = ".macos-dock-icon--folder";
+                if (edge == "right") iconSelector = ".macos-dock-icon--settings";
+                else if (edge == "bottom") iconSelector = ".macos-dock-icon--trash";
+                else if (edge == "top") iconSelector = ".macos-dock-icon--music";
+                
+                await JS.InvokeVoidAsync("eval", $"if(window.macOSDock) window.macOSDock.bounceIcon('{iconSelector}')");
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Error snapping window to {edge}: {ex.Message}");
+            }
+        }
+    }
+
+    private async Task MinimizeWindow()
+    {
+        // Simulate minimize by moving window to bottom of screen
+        if (windowController != null)
+        {
+            try
+            {
+                await windowController.InvokeVoidAsync("snapToEdge", "bottom");
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Error minimizing window: {ex.Message}");
+            }
+        }
+    }
+
+    private async Task MaximizeWindow()
+    {
+        // Simulate maximize by centering and making window prominent
+        if (windowController != null)
+        {
+            try
+            {
+                await windowController.InvokeVoidAsync("centerWindow");
+                // Add a slight scale effect via CSS
+                await JS.InvokeVoidAsync("eval", @"
+                    const window = document.querySelector('.macos-window');
+                    window.style.transform = 'scale(1.02)';
+                    window.style.transition = 'transform 0.2s ease';
+                    setTimeout(() => {
+                        window.style.transform = 'none';
+                        window.style.transition = 'all 0.3s ease';
+                    }, 200);
+                ");
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Error maximizing window: {ex.Message}");
+            }
+        }
+    }
+
+    public void Dispose()
+    {
+        accountState.OnChange -= StateHasChanged;
+        
+        // Clean up window controller
+        try
+        {
+            windowController?.InvokeVoidAsync("cleanup");
+            windowController?.DisposeAsync();
+        }
+        catch (Exception)
+        {
+            // Ignore cleanup errors during disposal
+        }
+    }
+
+    private void OnFileInputChange(InputFileChangeEventArgs e)
+    {
+        tempSelectedFile = e.File;
+        errorMessage = "";
+    }
+    
+    private async Task UploadFile()
+    {
+        if (tempSelectedFile == null)
+        {
+            errorMessage = "Please select a file to upload.";
+            return;
+        }
+
+        if (string.IsNullOrEmpty(selectedApiHostName))
+        {
+            errorMessage = "Please select an origin.";
+            return;
+        }
+
+        try
+        {
+            isUploading = true;
+            errorMessage = "";
+            uploadProgress = 0;
+            StateHasChanged();
+
+            // Simulate upload progress
+            var progressTimer = new System.Threading.Timer(UpdateProgress, null, 100, 100);
+
+            var uploadedMedia = await mediaService.Upload(tempSelectedFile, fileDescription, selectedApiHostName);
+
+            progressTimer?.Dispose();
+            uploadProgress = 100;
+            
+            // Reset form
+            tempSelectedFile = null;
+            fileDescription = "";
+            uploadProgress = 0;
+            
+            // Refresh the gallery
+            if (mediaGallery != null)
+            {
+                await mediaGallery.RefreshMedia();
+                await LoadMedia();
+            }
+            
+            // Bounce the Finder icon to indicate success
+            await JS.InvokeVoidAsync("eval", "if(window.macOSDock) window.macOSDock.bounceIcon('.macos-dock-icon--finder')");
+            
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Upload failed: {ex.Message}";
+        }
+        finally
+        {
+            isUploading = false;
+            StateHasChanged();
+        }
+    }
+    
+    private void UpdateProgress(object? state)
+    {
+        if (uploadProgress < 90)
+        {
+            uploadProgress += 10;
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task OnUploadComplete(Media uploadedMedia)
+    {
+        // Refresh the gallery to show the new media
+        if (mediaGallery != null)
+        {
+            await mediaGallery.RefreshMedia();
+            await LoadMedia();
+        }
+    }
+
+    private async Task OnMediaChanged()
+    {
+        // Refresh the gallery when media is edited or deleted
+        if (mediaGallery != null)
+        {
+            await mediaGallery.RefreshMedia();
+            await LoadMedia();
+        }
+    }
+
+    private async Task OnDropzoneFileUpload(Microsoft.AspNetCore.Components.Forms.InputFileChangeEventArgs e)
+    {
+        tempSelectedFile = e.File;
+        await UploadFile();
+    }
+
+    private void NavigateToHome()
+    {
+        navigationManager.NavigateTo("/");
+    }
+}
